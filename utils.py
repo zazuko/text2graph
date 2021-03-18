@@ -1,11 +1,9 @@
-import itertools
 import json
 import urllib
 from string import punctuation
 
 import nltk
 import spacy
-from flask import Flask, request
 
 import neuralcoref
 import opennre
@@ -88,59 +86,3 @@ def coref_resolution(text):
 def strip_punctuation(s):
     """Removes all punctuation from a string"""
     return ''.join(c for c in s if c not in punctuation)
-
-
-def deduplicate_dict(d):
-    return [dict(y) for y in set(tuple(x.items()) for x in d)]
-
-
-app = Flask(__name__)
-
-
-@ app.route('/')
-def hello_ie():
-    try:
-        text = request.args.get('text', None)
-        relation_threshold = request.args.get('relation_threshold', 0.9)
-        entities_threshold = request.args.get('entities_threshold', 0.8)
-        coref = request.args.get('coref', True)
-        if not text:
-            return 'Missing text parameter'
-
-        try:
-            relation_threshold = float(relation_threshold)
-            entities_threshold = float(entities_threshold)
-        except ValueError:
-            return 'Invalid value for relation or entity threshold parameter'
-
-        if coref:
-            text = coref_resolution(text)
-
-        print(text)
-
-        relations_list = list()
-        entities_list = list()
-
-        for sentence in nltk.sent_tokenize(text):
-            sentence = strip_punctuation(sentence)
-            entities = wikifier(sentence, threshold=entities_threshold)
-            entities_list.extend(
-                [{'title': el['title'], 'wikiId': el['wikiId'], 'label': el['label']} for el in entities])
-            # Iterate over every permutation pair of entities
-            for permutation in itertools.permutations(entities, 2):
-                for source in permutation[0]['characters']:
-                    for target in permutation[1]['characters']:
-                        # Relationship extraction with OpenNRE
-                        data = relation_model.infer(
-                            {'text': sentence, 'h': {'pos': [source[0], source[1] + 1]}, 't': {'pos': [target[0], target[1] + 1]}})
-                        if data[1] > relation_threshold:
-                            relations_list.append(
-                                {'source': permutation[0]['title'], 'target': permutation[1]['title'], 'type': data[0]})
-
-        return {'entities': deduplicate_dict(entities_list), 'relations': deduplicate_dict(relations_list)}
-    except Exception as e:
-        return 'An error has occured:' + str(e)
-
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
